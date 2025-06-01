@@ -11,8 +11,7 @@ pub struct GreenOptimizer<'ctx> {
 impl<'ctx> GreenOptimizer<'ctx> {
     pub fn new(module: &Module<'ctx>) -> Self {
         let fpm = PassManager::create(module);
-        
-        // Configure standard optimization passes
+
         fpm.add_instruction_combining_pass();
         fpm.add_reassociate_pass();
         fpm.add_gvn_pass();
@@ -20,14 +19,12 @@ impl<'ctx> GreenOptimizer<'ctx> {
         fpm.add_basic_alias_analysis_pass();
         fpm.add_promote_memory_to_register_pass();
         
-        // Initialize the pass manager
         fpm.initialize();
 
         GreenOptimizer { fpm }
     }
 
     pub fn optimize_function(&self, function: FunctionValue<'ctx>) {
-        // Run standard optimization passes
         self.fpm.run_on(&function);
     }
 }
@@ -47,10 +44,7 @@ impl<'ctx> EnergyAwarePassManager<'ctx> {
     }
 
     pub fn run_energy_optimizations(&mut self) {
-        // Get all functions before starting optimizations
         let functions: Vec<_> = self.module.get_functions().collect();
-        
-        // Apply optimizations to each function
         for function in functions {
             if !function.get_basic_blocks().is_empty() {
                 self.optimizer.optimize_function(function);
@@ -66,12 +60,9 @@ impl<'ctx> EnergyAwarePassManager<'ctx> {
     }
 
     fn optimize_memory_access(&self, function: &FunctionValue<'ctx>) {
-        // Implement memory access pattern optimization
         for block in function.get_basic_blocks() {
             let mut load_instructions = Vec::new();
             let mut store_instructions = Vec::new();
-
-            // Collect memory operations
             for instruction in block.get_instructions() {
                 match instruction.get_opcode() {
                     inkwell::values::InstructionOpcode::Load => {
@@ -83,8 +74,6 @@ impl<'ctx> EnergyAwarePassManager<'ctx> {
                     _ => {},
                 }
             }
-
-            // Coalesce memory accesses
             self.coalesce_memory_operations(&load_instructions, &store_instructions);
         }
     }
@@ -93,7 +82,6 @@ impl<'ctx> EnergyAwarePassManager<'ctx> {
         for block in function.get_basic_blocks() {
             let instructions: Vec<_> = block.get_instructions().collect();
             
-            // Group instructions by type
             let mut compute_group = Vec::new();
             let mut memory_group = Vec::new();
             let mut control_group = Vec::new();

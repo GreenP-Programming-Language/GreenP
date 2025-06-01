@@ -249,8 +249,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                         Ok(result.into())
                     }
                     BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => {
-                        // Requer short-circuiting (blocos básicos), não uma instrução LLVM simples para inteiros/bools
-                        // Para MVP, isto é um erro ou uma simplificação que não faz short-circuit
+                        // Requer short-circuiting (blocos básicos)
                         if !lhs_llvm.is_int_value() || !rhs_llvm.is_int_value() { // LLVM and/or são bitwise em inteiros
                              return Err(CodegenError::TypeMismatch(format!("Logical operator {:?} currently requires boolean (i1) operands, represented as integers", op)));
                         }
