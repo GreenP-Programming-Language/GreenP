@@ -19,7 +19,7 @@ Ao contribuir para o projeto GreenP, você concorda que suas contribuições ser
 Estamos construindo a GreenP para ser uma ferramenta poderosa no combate à crescente pegada de carbono da computação, com o potencial de economizar uma quantidade significativa de energia anualmente (estudos iniciais apontam para uma redução na ordem de dezenas de Terawatts-hora/ano) se amplamente adotada.
 
 ## exemplo de um código em greenp:
-
+```typescript
 function main(): void {
   const message: string = "Olá do GreenP, compilado e funcionando!";
   printString(message);
@@ -31,7 +31,7 @@ function main(): void {
   printString("Próximo ano:");
   printNumber(proximoAno);
 }
-
+```
 ## O Desafio: A Pegada Energética do Software
 
 O software moderno, apesar de seus imensos benefícios, consome uma quantidade cada vez maior de energia elétrica. Desde os data centers que alimentam a nuvem até os bilhões de dispositivos embarcados e móveis, a eficiência do código que executamos tem um impacto direto e cumulativo no consumo energético global e nas emissões de carbono. Muitas linguagens e práticas de desenvolvimento atuais não foram criadas com a eficiência energética como uma preocupação de primeira classe.
