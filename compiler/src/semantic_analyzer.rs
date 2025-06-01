@@ -23,7 +23,7 @@ pub type SemanticResult<T> = Result<T, SemanticError>;
 #[derive(Clone)] // Symbol table entry needs to be cloneable if table is cloned for scopes
 struct VariableInfo {
     ty: TypeAnnotationNode,
-    is_const: bool,
+    _is_const: bool,
 }
 
 #[derive(Clone)]
@@ -143,7 +143,7 @@ impl SemanticAnalyzer {
                 for param in &func_decl.params {
                     self.current_scope_mut().variables.insert(
                         param.name.0.clone(),
-                        VariableInfo { ty: param.ty_annotation, is_const: true } // Params are effectively const
+                        VariableInfo { ty: param.ty_annotation, _is_const: true } // Params are effectively const
                     );
                 }
                 self.analyze_block(&func_decl.body)?;
@@ -173,7 +173,7 @@ impl SemanticAnalyzer {
                      return Err(SemanticError::NotImplemented(format!("Variable '{}' already declared in this scope", id_name)));
                 }
 
-                self.current_scope_mut().variables.insert(id_name.clone(), VariableInfo { ty: declared_type, is_const: *is_const });
+                self.current_scope_mut().variables.insert(id_name.clone(), VariableInfo { ty: declared_type, _is_const: *is_const });
                 Ok(())
             }
             Statement::ExpressionStatement(expr) => {

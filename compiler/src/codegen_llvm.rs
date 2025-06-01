@@ -266,7 +266,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 }
             },
             ExpressionNode::FunctionCall { callee, args } => {
-                self.codegen_function_call(callee, args)?
+                self.codegen_function_call(callee, args)? // Retorna Ok(Option<BasicValueEnum>)
                     .ok_or_else(|| CodegenError::TypeMismatch("Function call used as expression must return a value (not void)".to_string()))
             },
         }
