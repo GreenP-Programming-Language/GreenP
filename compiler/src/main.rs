@@ -1,85 +1,73 @@
 
-fn compile_and_run(source_file: &str, output_executable: &str) -> Result<(), CompilationError> {
-    // ... (lexing, parsing como antes, usando a nova AST e tokens)
-    // let tokens_with_spans = lex_source(&source_code).map_err(CompilationError::Lex)?;
-    // let mut parser = Parser::new(&tokens_with_spans);
-    // let ast_program = parser.parse_program()?;
+use greenp_compiler::compile_file_to_executable;
+// use greenp_compiler::GreenPCompilationError; // Supondo que este é o erro de lib.rs
+use std::error::Error; // <<< ADICIONE ESTA LINHA
+use std::fs;
+use std::process::Command;
+use std::env;
 
-
-    // 3. Code Generation (LLVM IR)
-    println!("Generating LLVM IR...");
-    let context = Context::create();
-    let module_name = Path::new(source_file).file_stem().unwrap_or_default().to_str().unwrap_or("greenp_module");
-    let mut codegen = CodeGenerator::new(&context, module_name);
-    
-    // Ajustar para a nova AST: ProgramNode contém StatementNodes,
-    // e assumimos que parse_program retorna ProgramNode.
-    // O parser precisa ser ajustado para produzir FunctionDeclarationNode dentro de ProgramNode.body.
-    // Para simplificar, vamos assumir que o ProgramNode tem uma lista de FunctionDeclarationNodes por agora.
-    // (A AST de StatementNode::FunctionDeclaration precisaria ser extraída pelo parser para popular isso)
-    
-    // Para o MVP, vamos refatorar o parser para que ProgramNode contenha diretamente `functions: Vec<FunctionDeclarationNode>`.
-    // E o codegen_program iteraria sobre isso.
-    // Se ProgramNode.body contém StatementNode::FunctionDeclaration, o codegen precisa extraí-los.
-
-    // Supondo que codegen.codegen_program() agora preenche o módulo internamente:
-    codegen.codegen_program(&ast_program).map_err(CompilationError::from)?; // ast_program é ProgramNode
-    
-    let llvm_module = codegen.into_module(); // Obter o módulo após a geração
-
-    // ... (otimização, compilação para objeto, linkagem como antes)
-    // A função 'main' da GreenP (TS-like) será o entry point.
-     if let Some(main_fn) = llvm_module.get_function("main") {
-         // No inkwell 0.4, run_passes é um método do PassManager, não do CodeGenerator
-         let fpm = PassManager::create(&llvm_module);
-            fpm.add_instruction_combining_pass();
-            fpm.add_reassociate_pass();
-            // ... outras passes
-            fpm.initialize();
-            fpm.run_on(&main_fn); // Executar passes na função 'main'
-        println!("'main' function optimized (if found).");
-    }
-
-
-    // ... (resto como antes)
-    Ok(())
-}
-
-// ... (main function com exemplo de código GreenP atualizado)
 fn main() {
-    let greenp_ts_like_example = r#"
+    let args: Vec<String> = env::args().collect();
+    let (source_file_path, output_executable_name) = match args.as_slice() {
+        [_, input] => (input.as_str(), if cfg!(windows) { "a.exe" } else { "a.out" }),
+        [_, input, flag, output] if flag == "-o" => (input.as_str(), output.as_str()),
+        _ => {
+            eprintln!("Uso:");
+            eprintln!("  greenp_compiler <arquivo_entrada.gp>");
+            eprintln!("  greenp_compiler <arquivo_entrada.gp> -o <arquivo_saida>");
+            std::process::exit(1);
+        }
+    };
+
+    if !std::path::Path::new(source_file_path).exists() && source_file_path == "hello.gp" {
+        // ... (código para criar hello.gp se não existir) ...
+        let greenp_ts_like_example = r#"
 function main(): void {
-  const message: string = "Hello from GreenP (TypeScript-Style Syntax)!";
+  const message: string = "Hello from GreenP (via lib.rs)!";
   printString(message);
   
-  let x: number = 100;
+  let x: number = 200;
   const y: number = 50;
-  let result: number = x + y;
-  printNumber(result); // Esperado: 150
+  let result: number = x + y; // 250
+  printNumber(result); 
   
-  result = x - y;
-  printNumber(result); // Esperado: 50
+  result = x - y; // 150
+  printNumber(result);
 }
 "#;
-    fs::write("hello.gp", greenp_ts_like_example).expect("Unable to write hello.gp");
+        fs::write(source_file_path, greenp_ts_like_example)
+            .expect(&format!("Unable to write example file {}", source_file_path));
+        println!("Arquivo de exemplo '{}' criado.", source_file_path);
+    }
 
-    match compile_and_run("hello.gp", "hello_greenp_ts_mvp") {
+    match compile_file_to_executable(source_file_path, output_executable_name, true) {
         Ok(()) => {
-            println!("\nCompilation successful! Running ./hello_greenp_ts_mvp");
-            let run_output = Command::new("./hello_greenp_ts_mvp").output().expect("Failed to run executable");
-            println!("Output:\n{}", String::from_utf8_lossy(&run_output.stdout));
-            if !run_output.stderr.is_empty() {
-                 eprintln!("Stderr:\n{}", String::from_utf8_lossy(&run_output.stderr));
+            // ... (código para executar o programa compilado) ...
+            println!("\nCompilation successful! Running ./{}\n-------------------------", output_executable_name);
+            match Command::new(format!("./{}", output_executable_name)).output() {
+                Ok(run_output) => {
+                    if !run_output.stdout.is_empty() {
+                        println!("Saída do Programa:\n{}", String::from_utf8_lossy(&run_output.stdout));
+                    }
+                    if !run_output.stderr.is_empty() {
+                        eprintln!("Erros do Programa:\n{}", String::from_utf8_lossy(&run_output.stderr));
+                    }
+                    if !run_output.status.success() {
+                        eprintln!("Execução do programa falhou com status: {}", run_output.status);
+                    }
+                }
+                Err(e) => eprintln!("Falha ao executar o programa compilado '{}': {}", output_executable_name, e),
             }
+            println!("-------------------------");
         }
         Err(e) => {
-            eprintln!("\nCompilation failed: {}", e);
-            // Imprimir a causa raiz se disponível (com 'thiserror')
-            let mut cause = e.source();
+            eprintln!("\nFalha na compilação:\n{}", e);
+            let mut cause = e.source(); // Agora e.source() deve funcionar
             while let Some(source) = cause {
-                eprintln!("  Caused by: {}", source);
+                eprintln!("  Causado por: {}", source);
                 cause = source.source();
             }
+            std::process::exit(1);
         }
     }
 }

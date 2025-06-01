@@ -1,241 +1,267 @@
-// src/parser.rs
 use crate::ast::*;
-use crate::token::Token;
+use crate::token::Token;  // Supondo que LexicalError é definido em token.rs
 use std::iter::Peekable;
-use crate::token::{Token, LexicalError};
-use logos::Logos;
-
-// Usar um tipo que embute o span para melhor error reporting depois
-type TokenStream<'a, 'source> = Peekable<std::slice::Iter<'a, (Token<'source>, std::ops::Range<usize>)>>;
-
+use std::ops::Range;
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ParseError {
-    #[error("Unexpected token: expected {expected_desc} but found {found_tok:?} at {span:?}")]
+    #[error("Unexpected token: expected {expected_desc} but found {found_tok_desc} at {span:?}")]
     UnexpectedToken {
         expected_desc: String,
-        found_tok: Option<Token<'static>>, // 'static para fins de erro
-        span: std::ops::Range<usize>,
+        found_tok_desc: String,
+        span: Range<usize>,
     },
     #[error("Unexpected end of input while expecting {expected_desc}")]
     UnexpectedEOF { expected_desc: String },
     #[error("Invalid literal '{literal_text}' at {span:?}: {message}")]
-    InvalidLiteral { literal_text: String, message: String, span: std::ops::Range<usize> },
+    InvalidLiteral { literal_text: String, message: String, span: Range<usize> },
     #[error("Parser error: {message} at {span:?}")]
-    General { message: String, span: std::ops::Range<usize> },
+    General { message: String, span: Range<usize> },
 }
 
-pub fn lex_source<'source>(source: &'source str) -> Result<Vec<(Token<'source>, std::ops::Range<usize>)>, LexicalError> {
-    Token::lexer(source)
-        .spanned() // Para obter os ranges/spans dos tokens
-        .map(|(tok_res, span)| match tok_res {
-            Ok(token) => Ok((token, span)),
-            Err(_) => {
-                // Fornece um contexto melhor para o erro
-                let start = span.start.saturating_sub(10);
-                let end = (span.end + 10).min(source.len());
-                let context_slice = &source[start..end];
-                Err(LexicalError::UnrecognizedToken{ context: format!("...{}...", context_slice) })
-            }
-        })
-        .collect()
-}
-
-// Helper para converter Token<'source> para Token<'static> para mensagens de erro
-fn to_static_token(token: &Token<'_>) -> Token<'static> {
-    match token {
-        Token::Identifier(s) => Token::Identifier("ident"), // Placeholder
-        Token::IntegerLiteral(_) => Token::IntegerLiteral(0),
-        Token::StringLiteral(s) => Token::StringLiteral("string"),
-        Token::CharLikeStringLiteral(s) => Token::CharLikeStringLiteral("string"),
-        // Copiar outros tokens
-        t => *t, // Para tokens que são Copy
-    }
-}
-
+// Para facilitar, o lexer pode ser um módulo separado
+// pub fn lex_source<'source>(source: &'source str) -> Result<Vec<(Token<'source>, Range<usize>)>, LexicalError> { ... }
 
 type ParseResult<T> = Result<T, ParseError>;
+type TokenStream<'a, 'source> = Peekable<std::slice::Iter<'a, (Token<'source>, Range<usize>)>>;
+
 
 pub struct Parser<'a, 'source> {
     tokens: TokenStream<'a, 'source>,
-    current_span: std::ops::Range<usize>, // Rastrear o span do último token consumido
+    current_span: Range<usize>, // Para melhor reporting de erro
 }
 
 impl<'a, 'source> Parser<'a, 'source> {
-    pub fn new(tokens: &'a [(Token<'source>, std::ops::Range<usize>)]) -> Self {
+    pub fn new(tokens_with_spans: &'a [(Token<'source>, Range<usize>)]) -> Self {
         Parser {
-            tokens: tokens.iter().peekable(),
+            tokens: tokens_with_spans.iter().peekable(),
             current_span: 0..0,
         }
     }
 
-    fn consume_token_if(&mut self, p: impl FnOnce(&Token<'source>) -> bool) -> Option<(Token<'source>, std::ops::Range<usize>)> {
-        if self.tokens.peek().map_or(false, |(tok, _)| p(tok)) {
-            let (token, span) = self.tokens.next().unwrap().clone(); // Clone token e span
-            self.current_span = span.clone();
-            Some((token, span))
-        } else {
-            None
+    // --- Funções auxiliares do Parser (peek, consume, expect) ---
+    fn peek_token_type(&mut self) -> Option<Token<'source>> {
+        self.tokens.peek().map(|(token, _)| *token)
+    }
+
+    fn consume_token(&mut self) -> ParseResult<(Token<'source>, Range<usize>)> {
+        match self.tokens.next() {
+            Some((token, span)) => {
+                self.current_span = span.clone();
+                Ok((*token, span.clone()))
+            }
+            None => Err(ParseError::UnexpectedEOF { expected_desc: "any token".to_string() }),
         }
     }
     
-    fn expect_token_variant(&mut self, variant_discriminant: std::mem::Discriminant<Token<'source>>, expected_desc: &str) -> ParseResult<(Token<'source>, std::ops::Range<usize>)> {
-        match self.tokens.peek() {
-            Some((peeked_token, _)) if std::mem::discriminant(peeked_token) == variant_discriminant => {
-                let (token, span) = self.tokens.next().unwrap().clone();
-                self.current_span = span.clone();
-                Ok((token, span))
-            }
-            Some((peeked_token, peeked_span)) => Err(ParseError::UnexpectedToken {
+    fn expect_token_specific(&mut self, expected: Token<'static>, expected_desc: &str) -> ParseResult<Range<usize>> {
+        let (found_token, found_span) = self.consume_token()?;
+        // Compara discriminantes para tokens que carregam dados
+        if std::mem::discriminant(&found_token) == std::mem::discriminant(&expected) {
+            Ok(found_span)
+        } else {
+            Err(ParseError::UnexpectedToken {
                 expected_desc: expected_desc.to_string(),
-                found_tok: Some(to_static_token(peeked_token)),
-                span: peeked_span.clone(),
-            }),
-            None => Err(ParseError::UnexpectedEOF { expected_desc: expected_desc.to_string() }),
-        }
-    }
-
-
-    fn parse_type_annotation(&mut self) -> ParseResult<(TypeAnnotationNode, std::ops::Range<usize>)> {
-        self.expect_token_variant(std::mem::discriminant(&Token::Colon("")), ":")?;
-        let (type_token, type_span) = match self.tokens.next() {
-            Some((tok @ Token::TyNumber, span)) => Ok((TypeAnnotationNode::Number, span.clone())),
-            Some((tok @ Token::TyString, span)) => Ok((TypeAnnotationNode::String, span.clone())),
-            Some((tok @ Token::TyBoolean, span)) => Ok((TypeAnnotationNode::Boolean, span.clone())),
-            Some((tok @ Token::TyVoid, span)) => Ok((TypeAnnotationNode::Void, span.clone())),
-            Some((other_tok, other_span)) => Err(ParseError::UnexpectedToken {
-                expected_desc: "type annotation (number, string, boolean, void)".to_string(),
-                found_tok: Some(to_static_token(other_tok)),
-                span: other_span.clone(),
-            }),
-            None => Err(ParseError::UnexpectedEOF { expected_desc: "type annotation".to_string() }),
-        }?;
-        self.current_span = type_span.clone();
-        Ok((type_token, type_span))
-    }
-
-    // Simplificado para MVP
-    fn parse_primary_expression(&mut self) -> ParseResult<ExpressionNode> {
-        let (next_tok, tok_span) = self.tokens.next().ok_or_else(|| ParseError::UnexpectedEOF { expected_desc: "expression".to_string() })?;
-        self.current_span = tok_span.clone();
-
-        match next_tok {
-            Token::IntegerLiteral(val) => Ok(ExpressionNode::Literal(LiteralNode::Number(*val))),
-            Token::StringLiteral(s) | Token::CharLikeStringLiteral(s) => {
-                 Ok(ExpressionNode::Literal(LiteralNode::String(s.trim_matches('"').trim_matches('\'').to_string())))
-            }
-            Token::KwTrue => Ok(ExpressionNode::Literal(LiteralNode::Boolean(true))),
-            Token::KwFalse => Ok(ExpressionNode::Literal(LiteralNode::Boolean(false))),
-            Token::Identifier(name) => {
-                // Verificar se é uma chamada de função
-                if self.tokens.peek().map_or(false, |(t, _)| *t == Token::LParen) {
-                    self.tokens.next(); // Consumir LParen
-                    let mut args = Vec::new();
-                    // Simplificado: parse de argumentos
-                    if !self.tokens.peek().map_or(false, |(t,_)| *t == Token::RParen) {
-                        args.push(self.parse_expression()?); // Parse do primeiro argumento
-                        while self.tokens.peek().map_or(false, |(t,_)| *t == Token::Comma) {
-                            self.tokens.next(); // Consumir Comma
-                             args.push(self.parse_expression()?);
-                        }
-                    }
-                    self.expect_token_variant(std::mem::discriminant(&Token::RParen), ")")?;
-                    Ok(ExpressionNode::FunctionCall { callee: IdentifierNode(name.to_string()), args })
-                } else {
-                    Ok(ExpressionNode::Identifier(IdentifierNode(name.to_string())))
-                }
-            }
-            // Adicionar LParen para expressões agrupadas
-            _ => Err(ParseError::UnexpectedToken {
-                expected_desc: "primary expression (literal, identifier, function call)".to_string(),
-                found_tok: Some(to_static_token(next_tok)),
-                span: tok_span.clone(),
+                found_tok_desc: format!("{:?}", found_token),
+                span: found_span,
             })
         }
     }
     
-    // Implementar parse_expression com precedência de operadores (Pratt parser é bom aqui)
-    // Por enquanto, um placeholder muito simples para o MVP
-    fn parse_expression(&mut self) -> ParseResult<ExpressionNode> {
-        let lhs = self.parse_primary_expression()?;
+    fn expect_identifier(&mut self) -> ParseResult<(String, Range<usize>)> {
+        let (token, span) = self.consume_token()?;
+        if let Token::Identifier(name) = token {
+            Ok((name.to_string(), span))
+        } else {
+            Err(ParseError::UnexpectedToken{
+                expected_desc: "identifier".to_string(),
+                found_tok_desc: format!("{:?}", token),
+                span
+            })
+        }
+    }
 
-        // Checar por operadores binários (simplificado, sem precedência correta)
-        if let Some((op_tok, _)) = self.tokens.peek() {
-            let op = match op_tok {
-                Token::Plus => Some(BinaryOperator::Add),
-                Token::Minus => Some(BinaryOperator::Sub),
-                Token::Star => Some(BinaryOperator::Mul),
-                Token::Slash => Some(BinaryOperator::Div),
-                // Adicionar mais operadores
-                _ => None,
-            };
+    // --- Funções de parsing para cada nó da AST ---
+    fn parse_type_annotation(&mut self) -> ParseResult<TypeAnnotationNode> {
+        let (token, _span) = self.consume_token()?;
+        match token {
+            Token::TyNumber => Ok(TypeAnnotationNode::Number),
+            Token::TyString => Ok(TypeAnnotationNode::String),
+            Token::TyBoolean => Ok(TypeAnnotationNode::Boolean),
+            Token::TyVoid => Ok(TypeAnnotationNode::Void),
+            _ => Err(ParseError::UnexpectedToken{
+                expected_desc: "type annotation (number, string, boolean, void)".to_string(),
+                found_tok_desc: format!("{:?}", token),
+                span: self.current_span.clone() // current_span foi atualizado por consume_token
+            })
+        }
+    }
 
-            if let Some(op_variant) = op {
-                self.tokens.next(); // Consumir o operador
-                let rhs = self.parse_expression()?; // recursão simples, pode dar problema de associatividade/precedência
-                return Ok(ExpressionNode::BinaryOp { op: op_variant, left: Box::new(lhs), right: Box::new(rhs) });
+    fn parse_literal(&mut self) -> ParseResult<LiteralNode> {
+        let (token, span) = self.consume_token()?;
+        match token {
+            Token::IntegerLiteral(val) => Ok(LiteralNode::Number(val)),
+            Token::StringLiteral(s) | Token::CharLikeStringLiteral(s) => {
+                Ok(LiteralNode::String(s.trim_matches('"').trim_matches('\'').to_string()))
             }
+            Token::KwTrue => Ok(LiteralNode::Boolean(true)),
+            Token::KwFalse => Ok(LiteralNode::Boolean(false)),
+            _ => Err(ParseError::InvalidLiteral{
+                literal_text: format!("{:?}", token),
+                message: "Not a valid literal token".to_string(),
+                span
+            })
+        }
+    }
+    
+    // Implementação de parse_expression com precedência (Pratt Parser é recomendado para robustez)
+    // Para MVP, uma versão simplificada:
+    fn parse_primary_expression(&mut self) -> ParseResult<ExpressionNode> {
+        match self.peek_token_type() {
+            Some(Token::IntegerLiteral(_)) | Some(Token::StringLiteral(_)) | 
+            Some(Token::CharLikeStringLiteral(_)) | Some(Token::KwTrue) | Some(Token::KwFalse) => {
+                Ok(ExpressionNode::Literal(self.parse_literal()?))
+            }
+            Some(Token::Identifier(_name_peeked)) => { // Pode ser identificador ou chamada de função
+                let (name_str, _name_span) = self.expect_identifier()?; // Consome o identificador
+                if self.peek_token_type() == Some(Token::LParen) { // É uma chamada de função
+                    self.consume_token()?; // Consome LParen '('
+                    let mut args = Vec::new();
+                    if self.peek_token_type() != Some(Token::RParen) {
+                        loop {
+                            args.push(self.parse_expression()?);
+                            if self.peek_token_type() == Some(Token::Comma) {
+                                self.consume_token()?; // Consome Comma ','
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect_token_specific(Token::RParen, ")")?;
+                    Ok(ExpressionNode::FunctionCall { callee: IdentifierNode(name_str), args })
+                } else { // É um identificador simples
+                    Ok(ExpressionNode::Identifier(IdentifierNode(name_str)))
+                }
+            }
+            // Adicionar LParen para expressões agrupadas: (expr)
+            Some(Token::LParen) => {
+                self.consume_token()?; // Consome '('
+                let expr = self.parse_expression()?;
+                self.expect_token_specific(Token::RParen, ")")?;
+                Ok(expr)
+            }
+            Some(other) => Err(ParseError::UnexpectedToken{ // Se 'other' for Semicolon, este erro é gerado
+            expected_desc: "literal, identifier, or '('".to_string(),
+            found_tok_desc: format!("{:?}", other),
+            span: self.tokens.peek().map_or(self.current_span.clone(), |(_,s)|s.clone())
+            }),
+            None => Err(ParseError::UnexpectedEOF {expected_desc: "expression".to_string()})
+        }
+    }
+
+    // Operador de precedência helper (simplificado)
+    fn get_precedence(token: &Token) -> i32 {
+        match token {
+            Token::Star | Token::Slash | Token::Percent => 2,
+            Token::Plus | Token::Minus => 1,
+            // Adicionar outros operadores (comparação, lógicos) aqui
+            _ => 0, // Não é um operador binário ou menor precedência
+        }
+    }
+
+    fn parse_binary_op_rhs(&mut self, mut lhs: ExpressionNode, min_precedence: i32) -> ParseResult<ExpressionNode> {
+        while let Some(op_token_peeked) = self.peek_token_type() {
+            let precedence = Self::get_precedence(&op_token_peeked);
+            if precedence < min_precedence {
+                break;
+            }
+
+            let (op_token, _op_span) = self.consume_token()?; // Consome o operador
+            let mut rhs = self.parse_primary_expression()?;
+
+            // Se o próximo operador tem maior precedência, associa à direita (recursão)
+            if let Some(next_op_peeked) = self.peek_token_type() {
+                let next_precedence = Self::get_precedence(&next_op_peeked);
+                if precedence < next_precedence {
+                    rhs = self.parse_binary_op_rhs(rhs, precedence + 1)?;
+                }
+            }
+            
+            let binary_op = match op_token {
+                Token::Plus => BinaryOperator::Add,
+                Token::Minus => BinaryOperator::Sub,
+                Token::Star => BinaryOperator::Mul,
+                Token::Slash => BinaryOperator::Div,
+                Token::Percent => BinaryOperator::Mod,
+                // Mapear outros tokens de operador para BinaryOperator variants
+                _ => unreachable!("Expected binary operator token after precedence check"),
+            };
+            lhs = ExpressionNode::BinaryOp { op: binary_op, left: Box::new(lhs), right: Box::new(rhs) };
         }
         Ok(lhs)
     }
 
+    fn parse_expression(&mut self) -> ParseResult<ExpressionNode> {
+        let lhs = self.parse_primary_expression()?;
+        self.parse_binary_op_rhs(lhs, 0)
+    }
 
-    fn parse_statement(&mut self) -> ParseResult<StatementNode> {
-        let (peeked_tok, peeked_span) = self.tokens.peek().ok_or_else(|| ParseError::UnexpectedEOF { expected_desc: "statement".to_string() })?.clone();
-        // Não consumir ainda, apenas espiar
-
-        match peeked_tok {
-            Token::KwFunction => Ok(self.parse_function_declaration_statement()?),
-            Token::KwLet | Token::KwConst => Ok(self.parse_variable_declaration_statement()?),
-            Token::KwReturn => {
-                self.tokens.next(); // Consumir 'return'
-                let expr = if self.tokens.peek().map_or(false, |(t,_)| *t != Token::Semicolon) {
+    fn parse_statement(&mut self) -> ParseResult<Statement> {
+        match self.peek_token_type() {
+            Some(Token::KwFunction) => self.parse_function_declaration_statement(),
+            Some(Token::KwLet) | Some(Token::KwConst) => self.parse_variable_declaration_statement(),
+            Some(Token::KwReturn) => {
+                self.consume_token()?; // Consome 'return'
+                let expr = if self.peek_token_type() != Some(Token::Semicolon) {
                     Some(self.parse_expression()?)
                 } else {
                     None
                 };
-                self.expect_token_variant(std::mem::discriminant(&Token::Semicolon), ";")?;
-                Ok(StatementNode::ReturnStatement(expr))
+                self.expect_token_specific(Token::Semicolon, ";")?;
+                Ok(Statement::ReturnStatement(expr))
             }
-            // ... outros tipos de statement
-            _ => { // Default to ExpressionStatement
+            // Adicionar if, block, etc.
+            Some(Token::LBrace) => Ok(Statement::Block(self.parse_block()?)),
+            // Default para ExpressionStatement
+            Some(_) => {
                 let expr = self.parse_expression()?;
-                self.expect_token_variant(std::mem::discriminant(&Token::Semicolon), ";")?;
-                Ok(StatementNode::ExpressionStatement(expr))
+                self.expect_token_specific(Token::Semicolon, ";")?;
+                Ok(Statement::ExpressionStatement(expr))
             }
+            None => Err(ParseError::UnexpectedEOF { expected_desc: "statement".to_string()})
         }
     }
 
     fn parse_block(&mut self) -> ParseResult<BlockNode> {
-        self.expect_token_variant(std::mem::discriminant(&Token::LBrace), "{")?;
+        self.expect_token_specific(Token::LBrace, "{")?;
         let mut statements = Vec::new();
-        while !self.tokens.peek().map_or(true, |(t,_)| *t == Token::RBrace) {
+        while self.peek_token_type().is_some() && self.peek_token_type() != Some(Token::RBrace) {
             statements.push(self.parse_statement()?);
         }
-        self.expect_token_variant(std::mem::discriminant(&Token::RBrace), "}")?;
+        self.expect_token_specific(Token::RBrace, "}")?;
         Ok(BlockNode { statements })
     }
-    
-    fn parse_variable_declaration_statement(&mut self) -> ParseResult<StatementNode> {
-        let (decl_tok, _) = self.tokens.next().unwrap(); // let ou const
-        let is_const = *decl_tok == Token::KwConst;
 
-        let (name_tok, name_span) = self.expect_token_variant(std::mem::discriminant(&Token::Identifier("")), "identifier")?;
-        let name_str = match name_tok { Token::Identifier(s) => s.to_string(), _ => unreachable!() };
+    fn parse_variable_declaration_statement(&mut self) -> ParseResult<Statement> {
+        let (decl_token, _decl_span) = self.consume_token()?; // let ou const
+        let is_const = decl_token == Token::KwConst;
+
+        let (name_str, _name_span) = self.expect_identifier()?;
         
         let mut ty_annotation = None;
-        if self.tokens.peek().map_or(false, |(t,_)| *t == Token::Colon) {
-            ty_annotation = Some(self.parse_type_annotation()?.0);
+        if self.peek_token_type() == Some(Token::Colon) {
+            self.consume_token()?; // Consome ':'
+            ty_annotation = Some(self.parse_type_annotation()?);
         }
 
         let mut initializer = None;
-        if self.tokens.peek().map_or(false, |(t,_)| *t == Token::Assign) {
-            self.tokens.next(); // Consumir '='
+        if self.peek_token_type() == Some(Token::Assign) {
+            self.consume_token()?; // Consome '='
             initializer = Some(self.parse_expression()?);
         }
-        self.expect_token_variant(std::mem::discriminant(&Token::Semicolon), ";")?;
+        self.expect_token_specific(Token::Semicolon, ";")?;
 
-        Ok(StatementNode::VariableDeclaration { 
+        Ok(Statement::VariableDeclaration { 
             is_const, 
             name: IdentifierNode(name_str), 
             ty_annotation, 
@@ -243,56 +269,49 @@ impl<'a, 'source> Parser<'a, 'source> {
         })
     }
 
+    fn parse_function_declaration_statement(&mut self) -> ParseResult<Statement> {
+        self.expect_token_specific(Token::KwFunction, "function keyword")?;
+        let (name_str, _name_span) = self.expect_identifier()?;
 
-    fn parse_function_declaration_statement(&mut self) -> ParseResult<StatementNode> {
-        self.expect_token_variant(std::mem::discriminant(&Token::KwFunction), "function")?;
-        let (name_tok, _) = self.expect_token_variant(std::mem::discriminant(&Token::Identifier("")), "function name")?;
-        let name_str = match name_tok { Token::Identifier(s) => s.to_string(), _ => unreachable!() };
-
-        self.expect_token_variant(std::mem::discriminant(&Token::LParen), "(")?;
+        self.expect_token_specific(Token::LParen, "(")?;
         let mut params = Vec::new();
-        // Parse de parâmetros (simplificado)
-         while !self.tokens.peek().map_or(true, |(t,_)| *t == Token::RParen) {
-            let (param_name_tok, _) = self.expect_token_variant(std::mem::discriminant(&Token::Identifier("")), "parameter name")?;
-            let param_name_str = match param_name_tok { Token::Identifier(s) => s.to_string(), _ => unreachable!() };
-            let (param_ty, _) = self.parse_type_annotation()?;
-            params.push(FunctionParameterNode { name: IdentifierNode(param_name_str), ty_annotation: param_ty });
-            if self.tokens.peek().map_or(false, |(t,_)| *t == Token::Comma) {
-                self.tokens.next(); // Consumir Comma
-            } else {
-                break;
+        if self.peek_token_type() != Some(Token::RParen) {
+            loop {
+                let (param_name_str, _p_name_span) = self.expect_identifier()?;
+                self.expect_token_specific(Token::Colon, ": for parameter type")?;
+                let param_ty = self.parse_type_annotation()?;
+                params.push(FunctionParameterNode { name: IdentifierNode(param_name_str), ty_annotation: param_ty });
+                if self.peek_token_type() == Some(Token::Comma) {
+                    self.consume_token()?; // Consome Comma ','
+                } else {
+                    break;
+                }
             }
         }
-        self.expect_token_variant(std::mem::discriminant(&Token::RParen), ")")?;
+        self.expect_token_specific(Token::RParen, ")")?;
         
-        let (return_type, _) = if self.tokens.peek().map_or(false, |(t,_)| *t == Token::Colon) {
+        let return_type = if self.peek_token_type() == Some(Token::Colon) {
+            self.consume_token()?; // Consome ':'
             self.parse_type_annotation()?
         } else {
-            // Default to void if no return type is specified, or error if strict typing needed
-            (TypeAnnotationNode::Void, self.current_span.clone()) // Default implicit void
+            TypeAnnotationNode::Void // Default para void se não especificado
         };
 
         let body = self.parse_block()?;
         
-        Ok(StatementNode::Block(BlockNode { // Em TS, func decl é um statement, mas nossa AST pode envolvê-lo
-            statements: vec![
-                StatementNode::ExpressionStatement(ExpressionNode::Identifier(IdentifierNode("placeholder_for_func_decl_in_block_Wrapper".into()))), // FIXME
-            ] // This is not quite right. parse_program should expect FunctionDeclarationNode directly or as part of Program body.
+        Ok(Statement::FunctionDeclaration(FunctionDeclarationNode {
+            name: IdentifierNode(name_str),
+            params,
+            return_type,
+            body,
         }))
-        // O correto seria a ProgramNode ter FunctionDeclarationNode, não StatementNode->Block->Expr(Ident)
-        // Ou ter um FunctionDeclaration StatementNode variant. Let's add that:
-        // StatementNode::FunctionDeclaration(FunctionDeclarationNode { ... })
-        // Para MVP, vamos simplificar e assumir que `parse_program` chama uma `parse_top_level_statement`
-        // que pode ser uma declaração de função.
     }
     
-    // Ajustar parse_program para construir ProgramNode { body: Vec<StatementNode> }
-    // Onde StatementNode pode ser uma FunctionDeclaration, VariableDeclaration, etc.
     pub fn parse_program(&mut self) -> ParseResult<ProgramNode> {
-        let mut body = Vec::new();
-        while self.tokens.peek().is_some() {
-            body.push(self.parse_statement()?);
+        let mut body_statements = Vec::new();
+        while self.peek_token_type().is_some() { // Continua enquanto houver tokens
+            body_statements.push(self.parse_statement()?);
         }
-        Ok(ProgramNode { body })
+        Ok(ProgramNode { body: body_statements })
     }
 }
