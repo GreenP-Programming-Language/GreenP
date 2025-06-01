@@ -3,49 +3,37 @@ use logos::Logos;
 use std::fmt;
 
 #[derive(Logos, Debug, PartialEq, Clone, Copy)]
-#[logos(skip r"[ \t\n\f]+")] // Ignorar espaços em branco
-#[logos(skip r"//[^\n]*")]   // Ignorar comentários de linha única
-#[logos(skip r"/\*(?:[^*]|\*[^/])*\*/")] // Ignorar comentários de bloco
+#[logos(skip r"[ \t\n\f]+")]
+#[logos(skip r"//[^\n]*")]
+#[logos(skip r"/\*(?:[^*]|\*[^/])*\*/")]
 pub enum Token<'source> {
-    // Keywords TypeScript-like
-    #[token("function")]
-    KwFunction,
-    #[token("let")]
-    KwLet,
-    #[token("const")]
-    KwConst,
-    #[token("if")]
-    KwIf,
-    #[token("else")]
-    KwElse,
-    #[token("return")]
-    KwReturn,
-    #[token("true")]
-    KwTrue,
-    #[token("false")]
-    KwFalse,
+    // Keywords
+    #[token("function")] KwFunction,
+    #[token("let")] KwLet,
+    #[token("const")] KwConst,
+    #[token("if")] KwIf,
+    #[token("else")] KwElse,
+    #[token("return")] KwReturn,
+    #[token("true")] KwTrue,
+    #[token("false")] KwFalse,
 
-    // Types TypeScript-like
-    #[token("number")]
-    TyNumber,
-    #[token("string")]
-    TyString,
-    #[token("boolean")]
-    TyBoolean,
-    #[token("void")]
-    TyVoid,
+    // Types
+    #[token("number")] TyNumber,
+    #[token("string")] TyString,
+    #[token("boolean")] TyBoolean,
+    #[token("void")] TyVoid,
 
+    // Identifiers
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice())]
     Identifier(&'source str),
 
+    // Literals
     #[regex("[0-9]+", |lex| lex.slice().parse::<i64>().ok())]
     IntegerLiteral(i64),
-
-    #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice())] // Aspas duplas
+    #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice())]
     StringLiteral(&'source str),
-    #[regex(r#"'([^'\\]|\\.)*'"#, |lex| lex.slice())] // Aspas simples (tratado como string)
-    CharLikeStringLiteral(&'source str),
-
+    #[regex(r#"'([^'\\]|\\.)*'"#, |lex| lex.slice())]
+    CharLikeStringLiteral(&'source str), // Treated as string
 
     // Operators and Punctuation
     #[token("+")] Plus,
@@ -53,7 +41,6 @@ pub enum Token<'source> {
     #[token("*")] Star,
     #[token("/")] Slash,
     #[token("%")] Percent,
-
     #[token("===")] StrictEqual,
     #[token("!==")] StrictNotEqual,
     #[token("==")] EqualEqual,
@@ -62,11 +49,9 @@ pub enum Token<'source> {
     #[token(">")] GreaterThan,
     #[token("<=")] LessThanEqual,
     #[token(">=")] GreaterThanEqual,
-
     #[token("&&")] AmpersandAmpersand,
     #[token("||")] PipePipe,
     #[token("!")] Bang,
-
     #[token("=")] Assign,
     #[token(",")] Comma,
     #[token(";")] Semicolon,

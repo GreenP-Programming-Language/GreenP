@@ -3,19 +3,17 @@ name = "greenp_compiler"
 version = "0.1.0"
 edition = "2021"
 
+# Configuração para ter uma biblioteca e um binário
 [lib]
-name = "greenp_compiler"
+name = "greenp" # Nome da biblioteca (pode ser o mesmo que o pacote, ou diferente)
 path = "src/lib.rs"
 
 [[bin]]
-name = "greenp"
+name = "greep" # Nome do executável CLI
 path = "src/main.rs"
 
 [dependencies]
-inkwell = { version = "0.4.0", features = ["llvm15-0"] } 
+inkwell = { version = "0.4.0", features = ["llvm15-0"] } # Ajuste a versão do LLVM se necessário
 logos = "0.13.0"
 thiserror = "1.0"
 
-[dev-dependencies]
-pretty_assertions = "1.3"
-tempfile = "3.3"

@@ -1,29 +1,22 @@
-
+// src/lib.rs
 pub mod token;
 pub mod ast;
-pub mod lexer; // Esta linha requer que src/lexer.rs (ou src/lexer/mod.rs) exista
+pub mod lexer;
 pub mod parser;
 pub mod semantic_analyzer;
 pub mod codegen_llvm;
 pub mod utils;
 
-// Reexportar tipos de erro principais para serem acessíveis aos usuários da biblioteca
 pub use token::LexicalError;
 pub use parser::ParseError;
 pub use semantic_analyzer::SemanticError;
 pub use codegen_llvm::CodegenError;
 
-// Esta 'use' é necessária porque ProgramNode é explicitamente anotado.
-use ast::ProgramNode;
-
-// As duas linhas abaixo foram removidas conforme sugerido pelo compilador,
-// pois Token e Range não são nomeados explicitamente neste escopo.
-// use token::Token;      // REMOVIDA
-// use std::ops::Range;  // REMOVIDA
+use ast::ProgramNode; // Used as type for ast_program
 
 use inkwell::context::Context;
 use inkwell::passes::PassManager;
-use inkwell::targets::{InitializationConfig, Target, TargetMachine};
+use inkwell::targets::{InitializationConfig, Target, TargetMachine}; // TargetTriple removed as unused
 use inkwell::OptimizationLevel;
 
 use std::fs;
@@ -50,8 +43,6 @@ pub enum GreenPCompilationError {
     Internal(String),
 }
 
-/// Compila um arquivo fonte GreenP para um executável.
-// (Restante da função compile_file_to_executable como estava antes)
 pub fn compile_file_to_executable(
     source_file_path: &str,
     output_executable_name: &str,
@@ -62,22 +53,17 @@ pub fn compile_file_to_executable(
     }
     let source_code = fs::read_to_string(source_file_path)?;
 
-    // 1. Lexing
     if print_diagnostics { println!("Phase 1: Lexing..."); }
-    let tokens_with_spans = lexer::lex_source(&source_code)?; // O tipo é inferido aqui
+    let tokens_with_spans = lexer::lex_source(&source_code)?;
 
-    // 2. Parsing
     if print_diagnostics { println!("Phase 2: Parsing..."); }
-    // Parser::new recebe &tokens_with_spans. O parser.rs lida com os tipos internos.
     let mut parser = parser::Parser::new(&tokens_with_spans);
-    let ast_program: ProgramNode = parser.parse_program()?; // ProgramNode é usado explicitamente
+    let ast_program: ProgramNode = parser.parse_program()?;
 
-    // 3. Semantic Analysis
     if print_diagnostics { println!("Phase 3: Semantic Analysis..."); }
     let mut semantic_analyzer = semantic_analyzer::SemanticAnalyzer::new();
     semantic_analyzer.analyze_program(&ast_program)?;
 
-    // 4. Code Generation (LLVM IR)
     if print_diagnostics { println!("Phase 4: Generating LLVM IR..."); }
     let llvm_context = Context::create();
     let module_name = Path::new(source_file_path)
@@ -108,8 +94,6 @@ pub fn compile_file_to_executable(
         fpm.run_on(&main_fn);
     }
 
-    // 5. Compilar LLVM IR para Arquivo Objeto
-    // ... (restante da função como antes) ...
     if print_diagnostics { println!("Phase 5: Compiling LLVM IR to Object File..."); }
     Target::initialize_native(&InitializationConfig::default()).map_err(|e| {
         GreenPCompilationError::LlvmTooling(format!("Failed to initialize native target: {}", e))
@@ -156,7 +140,6 @@ pub fn compile_file_to_executable(
         })?;
     if print_diagnostics { println!("Object file written to {}", object_file_path.display()); }
 
-    // 6. Linkar Arquivo Objeto para criar Executável
     if print_diagnostics { println!("Phase 6: Linking object file to create executable {}...", output_executable_name); }
     let linker = option_env!("GREENP_CC").unwrap_or("cc");
     let output_cmd = Command::new(linker)

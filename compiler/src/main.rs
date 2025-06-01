@@ -1,7 +1,7 @@
+use greenp::compile_file_to_executable; // Esta importação é usada
+// use greenp::GreenPCompilationError;   // <<< REMOVA ESTA LINHA
 
-use greenp_compiler::compile_file_to_executable;
-// use greenp_compiler::GreenPCompilationError; // Supondo que este é o erro de lib.rs
-use std::error::Error; // <<< ADICIONE ESTA LINHA
+use std::error::Error; // Necessário para e.source()
 use std::fs;
 use std::process::Command;
 use std::env;
@@ -13,14 +13,15 @@ fn main() {
         [_, input, flag, output] if flag == "-o" => (input.as_str(), output.as_str()),
         _ => {
             eprintln!("Uso:");
-            eprintln!("  greenp_compiler <arquivo_entrada.gp>");
-            eprintln!("  greenp_compiler <arquivo_entrada.gp> -o <arquivo_saida>");
+            let bin_name = env!("CARGO_BIN_NAME").to_string();
+            eprintln!("  {} <arquivo_entrada.gp>", bin_name);
+            eprintln!("  {} <arquivo_entrada.gp> -o <arquivo_saida>", bin_name);
             std::process::exit(1);
         }
     };
 
     if !std::path::Path::new(source_file_path).exists() && source_file_path == "hello.gp" {
-        // ... (código para criar hello.gp se não existir) ...
+        println!("Arquivo de entrada '{}' não encontrado. Usando exemplo interno.", source_file_path);
         let greenp_ts_like_example = r#"
 function main(): void {
   const message: string = "Hello from GreenP (via lib.rs)!";
@@ -42,7 +43,6 @@ function main(): void {
 
     match compile_file_to_executable(source_file_path, output_executable_name, true) {
         Ok(()) => {
-            // ... (código para executar o programa compilado) ...
             println!("\nCompilation successful! Running ./{}\n-------------------------", output_executable_name);
             match Command::new(format!("./{}", output_executable_name)).output() {
                 Ok(run_output) => {
@@ -60,9 +60,9 @@ function main(): void {
             }
             println!("-------------------------");
         }
-        Err(e) => {
-            eprintln!("\nFalha na compilação:\n{}", e);
-            let mut cause = e.source(); // Agora e.source() deve funcionar
+        Err(e) => { // 'e' aqui ainda é do tipo greenp::GreenPCompilationError por inferência
+            eprintln!("\nFalha na compilação:\n{}", e); // Funciona via Display trait
+            let mut cause = e.source(); // Funciona via Error trait
             while let Some(source) = cause {
                 eprintln!("  Causado por: {}", source);
                 cause = source.source();

@@ -1,6 +1,6 @@
 // src/ast.rs
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)] // Added Copy
 pub enum TypeAnnotationNode {
     Number,
     String,
@@ -9,12 +9,12 @@ pub enum TypeAnnotationNode {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct IdentifierNode(pub String); // Renomeado de Identifier
+pub struct IdentifierNode(pub String);
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum LiteralNode { // Renomeado de Literal
-    Number(i64), // Para MVP, 'number' é i64 (representando i32 no backend)
-    String(String), // String limpa, sem aspas
+pub enum LiteralNode {
+    Number(i64),
+    String(String),
     Boolean(bool),
 }
 
@@ -23,31 +23,11 @@ pub enum BinaryOperator {
     Add, Sub, Mul, Div, Mod,
     Eq, Neq, StrictEq, StrictNeq,
     Lt, Gt, Lte, Gte,
-    LogicalAnd, LogicalOr, // Para futura implementação com short-circuiting
+    LogicalAnd, LogicalOr,
 }
 
-// Adicionado para Energy/Resource, mesmo que stubs no codegen MVP
 #[derive(Debug, PartialEq, Clone)]
-pub enum EnergyConstraint { Limit(String) } // Exemplo
-#[derive(Debug, PartialEq, Clone)]
-pub enum PowerMode { Low, High } // Exemplo
-#[derive(Debug, PartialEq, Clone)]
-pub enum EnergyAnnotation {
-    Bound(EnergyConstraint),
-    BatchIO { batch_size: usize },
-    PowerMode(PowerMode),
-    Custom(String), // Para extensibilidade
-}
-#[derive(Debug, PartialEq, Clone)]
-pub enum ResourceType {
-    CPU { cores: u32, frequency: u32 },
-    Memory { size: usize },
-    IO { device: String, mode: PowerMode },
-}
-
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum ExpressionNode { // Renomeado de Expression
+pub enum ExpressionNode {
     Literal(LiteralNode),
     Identifier(IdentifierNode),
     BinaryOp {
@@ -56,62 +36,80 @@ pub enum ExpressionNode { // Renomeado de Expression
         right: Box<ExpressionNode>,
     },
     FunctionCall {
-        callee: IdentifierNode, // Para MVP, callee é um IdentifierNode simples
+        callee: IdentifierNode,
         args: Vec<ExpressionNode>,
     },
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct FunctionParameterNode { // Renomeado de FunctionParameter
+pub struct FunctionParameterNode {
     pub name: IdentifierNode,
     pub ty_annotation: TypeAnnotationNode,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct BlockNode { // Renomeado de Block
-    pub statements: Vec<Statement>, // Usa o tipo Statement corrigido
+pub struct BlockNode {
+    pub statements: Vec<Statement>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct FunctionDeclarationNode { // Renomeado de FunctionDeclaration
+pub struct FunctionDeclarationNode {
     pub name: IdentifierNode,
     pub params: Vec<FunctionParameterNode>,
     pub return_type: TypeAnnotationNode,
     pub body: BlockNode,
 }
 
-// CORRIGIDO: Renomeado de StatementNode para Statement
-// E garantindo que FunctionDeclaration seja uma variante aqui.
+// Placeholders for Energy/Resource related AST nodes (from previous discussions)
+// These are not fully handled by the MVP parser/codegen but are here for structure.
+#[derive(Debug, PartialEq, Clone)]
+pub enum EnergyConstraint { Limit(String) }
+#[derive(Debug, PartialEq, Clone)]
+pub enum PowerMode { Low, High }
+#[derive(Debug, PartialEq, Clone)]
+pub enum EnergyAnnotation {
+    Bound(EnergyConstraint),
+    BatchIO { batch_size: usize },
+    PowerMode(PowerMode),
+    Custom(String),
+}
+#[derive(Debug, PartialEq, Clone)]
+pub enum ResourceType {
+    CPU { cores: u32, frequency: u32 },
+    Memory { size: usize },
+    IO { device: String, mode: PowerMode },
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Statement {
-    FunctionDeclaration(FunctionDeclarationNode), // Funções podem ser declaradas em nível superior
+    FunctionDeclaration(FunctionDeclarationNode),
     VariableDeclaration {
-        is_const: bool, // true for const, false for let
+        is_const: bool,
         name: IdentifierNode,
         ty_annotation: Option<TypeAnnotationNode>,
         initializer: Option<ExpressionNode>,
     },
     ExpressionStatement(ExpressionNode),
     ReturnStatement(Option<ExpressionNode>),
-    // Para if/else, loops, etc., adicionar aqui posteriormente
-    IfStatement { // Exemplo, pode ser adiado do MVP inicial se o parser ficar complexo
+    IfStatement { // Basic structure for future
         condition: Box<ExpressionNode>,
         then_block: BlockNode,
         else_block: Option<BlockNode>,
     },
-    Block(BlockNode), // Para blocos explícitos: { ... }
-    EnergyBlock { // Mantido da AST original, mesmo que o codegen seja stub
+    Block(BlockNode), // For explicit blocks not tied to functions/ifs
+    Empty, // For empty statements (;)
+    EnergyBlock { // Placeholder
         annotations: Vec<EnergyAnnotation>,
         body: BlockNode,
     },
-    ResourceAcquisition { // Mantido da AST original
+    ResourceAcquisition { // Placeholder
         resource: ResourceType,
-        constraints: Vec<EnergyConstraint>, // Ou um tipo específico de constraint
+        constraints: Vec<EnergyConstraint>,
         body: BlockNode,
     },
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ProgramNode { // Renomeado de Program
-    pub body: Vec<Statement>, // O corpo do programa é uma lista de Statements
+pub struct ProgramNode {
+    pub body: Vec<Statement>,
 }

@@ -296,22 +296,4 @@ pub mod power_utils {
 
         total_energy > 10.0 // Threshold for inserting power hints
     }
-}
-
-// Energy-aware attributes for LLVM IR
-#[derive(Debug, Clone)]
-pub enum PowerMode {
-    Performance,
-    Balanced,
-    PowerSaver,
-}
-
-impl PowerMode {
-    pub fn to_attribute_string(&self) -> &'static str {
-        match self {
-            PowerMode::Performance => "power_mode=performance",
-            PowerMode::Balanced => "power_mode=balanced",
-            PowerMode::PowerSaver => "power_mode=powersaver",
-        }
-    }
 } 
